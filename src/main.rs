@@ -1,14 +1,23 @@
 use axum::{
-    routing::{get, post},
+    extract::State,
     http::StatusCode,
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 
-use rust_kasa::{device, models, kasa_protocol};
+use rust_kasa::{
+    device::{self, Device},
+    kasa_protocol, models,
+};
 
 #[tokio::main]
 async fn main() {
+    let mut state = DeviceState::new();
+
+    if let Ok(dev) = device::determine_target("".to_string()) {
+        state.devs.push(dev);
+    }
     // initialize tracing
     //tracing_subscriber::fmt::init();
     // build our application with a route
@@ -17,7 +26,8 @@ async fn main() {
         .route("/", get(root))
         // `POST /users` goes to `create_user`
         .route("/plugs", get(get_plugs))
-        .route("/toggle", post(toggle_plug));
+        .route("/toggle", post(toggle_plug))
+        .with_state(state);
 
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -29,13 +39,11 @@ async fn root() -> &'static str {
     "Hello, World!"
 }
 
-async fn get_plugs(
-    // this argument tells axum to parse the request body
+async fn get_plugs(// this argument tells axum to parse the request body
     // as JSON into a `CreateUser` type
     //Json(payload): Json<CreateUser>,
 ) -> (StatusCode, Json<Plugs>) {
-
-    if let Ok(dev) = device::determine_target("".to_string()){
+    if let Ok(dev) = device::determine_target("".to_string()) {
         if let Some(plugs) = dev.get_children() {
             return (StatusCode::CREATED, Json(plugs));
         }
@@ -43,18 +51,26 @@ async fn get_plugs(
     return (StatusCode::NOT_FOUND, Json(vec![]));
 }
 
-async fn toggle_plug(Json(payload): Json<Index>) -> StatusCode {
-    println!("togglin"); 
-    if let Ok(dev) = device::determine_target("".to_string()){
-        println!("do we find em");
-        //let children = dev.get_children();
-        //if let Some(plugs) = children {
-        println!("idx: {:}", payload.idx);
-        dev.toggle_relay_by_id(payload.idx as usize);
-        //return (StatusCode::CREATED, Json(plugs[payload as usize]));
-        return StatusCode::CREATED;
-        //}
+async fn toggle_plug(
+    State(DeviceState { devs }): State<DeviceState>,
+    Json(payload): Json<Index>,
+) -> StatusCode {
+    println!("togglin");
+
+    if devs.len() > 0 {
+        //just take first for now if it exists
+        println!("theres a device");
+        devs[0].clone().toggle_relay_by_id(payload.idx as usize);
+        return StatusCode::OK;
+
+    } else if devs.len()== 0 {
+
+        if let Ok( dev) = device::determine_target("".to_string()) {
+            dev.toggle_relay_by_id(payload.idx as usize);
+            return StatusCode::OK;
+        }
     }
+
     println!("failed");
     return StatusCode::NOT_FOUND;
 }
@@ -66,3 +82,13 @@ struct Index {
     idx: u32,
 }
 
+#[derive(Clone)]
+struct DeviceState {
+    devs: Vec<device::Device>,
+}
+
+impl DeviceState {
+    pub fn new() -> Self {
+        Self { devs: vec![] }
+    }
+}
