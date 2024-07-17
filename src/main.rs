@@ -4,11 +4,11 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use rust_kasa::{
     device::{self, Device},
-    kasa_protocol, models,
+    models,
 };
 
 #[tokio::main]
@@ -22,9 +22,7 @@ async fn main() {
     //tracing_subscriber::fmt::init();
     // build our application with a route
     let app = Router::new()
-        // `GET /` goes to `root`
         .route("/", get(root))
-        // `POST /users` goes to `create_user`
         .route("/plugs", get(get_plugs))
         .route("/toggle", post(toggle_plug))
         .with_state(state);
@@ -39,15 +37,25 @@ async fn root() -> &'static str {
     "Hello, World!"
 }
 
-async fn get_plugs(// this argument tells axum to parse the request body
-    // as JSON into a `CreateUser` type
-    //Json(payload): Json<CreateUser>,
+async fn get_plugs(
+    State(DeviceState { devs }): State<DeviceState>,
 ) -> (StatusCode, Json<Plugs>) {
-    if let Ok(dev) = device::determine_target("".to_string()) {
-        if let Some(plugs) = dev.get_children() {
-            return (StatusCode::CREATED, Json(plugs));
-        }
+
+    let dev = match devs.len() {
+        len if len > 0 => devs[0].clone(),
+        _ => match device::determine_target("".to_string()) {
+            Ok(dev) => dev,
+            Err(_err) => {
+                    return (StatusCode::NOT_FOUND, Json(vec![]));
+                },
+            },
+
+    };
+
+    if let  Some(plugs) = dev.get_children() {
+        return (StatusCode::OK, Json(plugs))
     }
+       
     return (StatusCode::NOT_FOUND, Json(vec![]));
 }
 
@@ -84,7 +92,7 @@ struct Index {
 
 #[derive(Clone)]
 struct DeviceState {
-    devs: Vec<device::Device>,
+    devs: Vec<Device>,
 }
 
 impl DeviceState {
