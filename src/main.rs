@@ -4,8 +4,6 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use anyhow::{anyhow, Result};
 
 use rust_kasa::{device, models, kasa_protocol};
 
@@ -13,9 +11,6 @@ use rust_kasa::{device, models, kasa_protocol};
 async fn main() {
     // initialize tracing
     //tracing_subscriber::fmt::init();
-
-     
-
     // build our application with a route
     let app = Router::new()
         // `GET /` goes to `root`
@@ -54,6 +49,7 @@ async fn toggle_plug(Json(payload): Json<Index>) -> StatusCode {
         println!("do we find em");
         //let children = dev.get_children();
         //if let Some(plugs) = children {
+        println!("idx: {:}", payload.idx);
         dev.toggle_relay_by_id(payload.idx as usize);
         //return (StatusCode::CREATED, Json(plugs[payload as usize]));
         return StatusCode::CREATED;
@@ -70,15 +66,3 @@ struct Index {
     idx: u32,
 }
 
-// the input to our `create_user` handler
-#[derive(Deserialize)]
-struct CreateUser {
-    username: String,
-}
-
-// the output to our `create_user` handler
-#[derive(Serialize)]
-struct User {
-    id: u64,
-    username: String,
-}
