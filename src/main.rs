@@ -15,14 +15,17 @@ use rust_kasa::{
 async fn main() {
     let mut state = DeviceState::new();
 
-    if let Ok(dev) = device::determine_target("".to_string()) {
-        state.devs.push(dev);
+    if let Ok(dev) = device::discover_multiple() {
+        for d in dev {
+            state.devs.push(d);
+        }
     }
     // initialize tracing
     //tracing_subscriber::fmt::init();
     // build our application with a route
     let app = Router::new()
         .route("/", get(root))
+        .route("/discover", get(discover_devices))
         .route("/plugs", get(get_plugs))
         .route("/toggle", post(toggle_plug))
         .with_state(state);
@@ -56,6 +59,15 @@ async fn get_plugs(
         return (StatusCode::OK, Json(plugs))
     }
        
+    return (StatusCode::NOT_FOUND, Json(vec![]));
+}
+
+async fn discover_devices() ->(StatusCode, Json<OutletDevices>) {
+    if let Ok(devs) = device::discover_multiple() {
+        if devs.len() > 0 {
+            return (StatusCode::OK, Json(devs));
+            } 
+        }
     return (StatusCode::NOT_FOUND, Json(vec![]));
 }
 
