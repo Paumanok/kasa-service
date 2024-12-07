@@ -1,3 +1,5 @@
+use std::process::Output;
+
 use axum::{
     extract::State,
     http::StatusCode,
@@ -16,16 +18,19 @@ async fn main() {
     println!("hello world");
     let mut state = DeviceState::new();
 
-    if let Ok(dev) = device::determine_target("".to_string()) {
-        state.devs.push(dev);
+    if let Ok(dev) = device::discover_multiple() {
+        for d in dev {
+            state.devs.push(d);
+        }
     }
     // initialize tracing
     //tracing_subscriber::fmt::init();
     // build our application with a route
     let app = Router::new()
         .route("/", get(root))
+        .route("/discover", get(discover_devices))
         .route("/plugs", get(get_plugs))
-        .route("/toggle", post(toggle_plug))
+        .route("/toggle", post(toggle_outlet))
         .with_state(state);
 
     // run our app with hyper, listening globally on port 3000
@@ -60,6 +65,43 @@ async fn get_plugs(
     return (StatusCode::NOT_FOUND, Json(vec![]));
 }
 
+async fn discover_devices(
+State(DeviceState { devs }): State<DeviceState>,
+) ->(StatusCode, Json<Vec<models::SysInfo>>) {
+    if let Ok(dev_list) = device::discover_multiple() {
+         if dev_list.len() > 0 {
+            let mut discovered: Vec<models::SysInfo> = vec![];
+            for d in dev_list {
+                match d.sysinfo() {
+                    Some(disc) => discovered.push(disc),
+                    _ => (),
+                }
+            }
+            return (StatusCode::OK, Json(discovered));
+            
+        }
+    } 
+    
+    return (StatusCode::NOT_FOUND, Json(vec![]));
+}
+
+async fn toggle_outlet(Json(payload): Json<Outlet>) -> StatusCode {
+    
+    if let Ok(dev) = device::determine_target(payload.ip_addr) {
+        if let Some(idx) = payload.idx {
+            println!("toggle idx");
+            dev.toggle_relay_by_id(idx);
+        } else {
+            println!("toggle single");
+            dev.toggle_single_relay();
+        }
+        return StatusCode::OK;
+    }
+
+
+    return StatusCode::NOT_FOUND
+}
+
 async fn toggle_plug(
     State(DeviceState { devs }): State<DeviceState>,
     Json(payload): Json<Index>,
@@ -86,9 +128,17 @@ async fn toggle_plug(
 
 type Plugs = Vec<models::KasaChildren>;
 
+type OutletDevices = Vec<models::KasaResp>;
+
 #[derive(Deserialize)]
 struct Index {
     idx: u32,
+}
+
+#[derive(Deserialize)]
+struct Outlet {
+    ip_addr: String,
+    idx: Option<usize>,
 }
 
 #[derive(Clone)]
