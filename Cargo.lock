@@ -139,6 +139,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum-macros"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57d123550fa8d071b7255cb0cc04dc302baa6c8c4a79f55701552684d8399bce"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "backtrace"
 version = "0.3.73"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -381,6 +392,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "axum-macros",
  "rust_kasa",
  "serde",
  "serde_json",
@@ -521,6 +533,7 @@ dependencies = [
 [[package]]
 name = "rust_kasa"
 version = "0.1.0"
+source = "git+https://github.com/paumanok/rust_kasa.git#8136dff3d5f4712e7614c48a9c55432e54de2aa6"
 dependencies = [
  "anyhow",
  "clap",

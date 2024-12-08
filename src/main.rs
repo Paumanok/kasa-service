@@ -1,11 +1,10 @@
-use std::process::Output;
-
 use axum::{
     extract::State,
     http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
+use axum_macros::debug_handler;
 use serde::Deserialize;
 
 use rust_kasa::{
@@ -13,120 +12,9 @@ use rust_kasa::{
     models,
 };
 
-#[tokio::main]
-async fn main() {
-    println!("hello world");
-    let mut state = DeviceState::new();
+use std::sync::{Arc, Mutex};
 
-    if let Ok(dev) = device::discover_multiple() {
-        for d in dev {
-            state.devs.push(d);
-        }
-    }
-    // initialize tracing
-    //tracing_subscriber::fmt::init();
-    // build our application with a route
-    let app = Router::new()
-        .route("/", get(root))
-        .route("/discover", get(discover_devices))
-        .route("/plugs", get(get_plugs))
-        .route("/toggle", post(toggle_outlet))
-        .with_state(state);
-
-    // run our app with hyper, listening globally on port 3000
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:4000").await.unwrap();
-    axum::serve(listener, app).await.unwrap();
-}
-
-// basic handler that responds with a static string
-async fn root() -> &'static str {
-    "Hello, World!"
-}
-
-async fn get_plugs(
-    State(DeviceState { devs }): State<DeviceState>,
-) -> (StatusCode, Json<Plugs>) {
-
-    let dev = match devs.len() {
-        len if len > 0 => devs[0].clone(),
-        _ => match device::determine_target("".to_string()) {
-            Ok(dev) => dev,
-            Err(_err) => {
-                    return (StatusCode::NOT_FOUND, Json(vec![]));
-                },
-            },
-
-    };
-
-    if let  Some(plugs) = dev.get_children() {
-        return (StatusCode::OK, Json(plugs))
-    }
-       
-    return (StatusCode::NOT_FOUND, Json(vec![]));
-}
-
-async fn discover_devices(
-State(DeviceState { devs }): State<DeviceState>,
-) ->(StatusCode, Json<Vec<models::SysInfo>>) {
-    if let Ok(dev_list) = device::discover_multiple() {
-         if dev_list.len() > 0 {
-            let mut discovered: Vec<models::SysInfo> = vec![];
-            for d in dev_list {
-                match d.sysinfo() {
-                    Some(disc) => discovered.push(disc),
-                    _ => (),
-                }
-            }
-            return (StatusCode::OK, Json(discovered));
-            
-        }
-    } 
-    
-    return (StatusCode::NOT_FOUND, Json(vec![]));
-}
-
-async fn toggle_outlet(Json(payload): Json<Outlet>) -> StatusCode {
-    
-    if let Ok(dev) = device::determine_target(payload.ip_addr) {
-        if let Some(idx) = payload.idx {
-            println!("toggle idx");
-            dev.toggle_relay_by_id(idx);
-        } else {
-            println!("toggle single");
-            dev.toggle_single_relay();
-        }
-        return StatusCode::OK;
-    }
-
-
-    return StatusCode::NOT_FOUND
-}
-
-async fn toggle_plug(
-    State(DeviceState { devs }): State<DeviceState>,
-    Json(payload): Json<Index>,
-) -> StatusCode {
-    println!("togglin");
-
-    if devs.len() > 0 {
-        //just take first for now if it exists
-        println!("theres a device");
-        devs[0].clone().toggle_relay_by_id(payload.idx as usize);
-        return StatusCode::OK;
-
-    } else if devs.len()== 0 {
-
-        if let Ok( dev) = device::determine_target("".to_string()) {
-            dev.toggle_relay_by_id(payload.idx as usize);
-            return StatusCode::OK;
-        }
-    }
-
-    println!("failed");
-    return StatusCode::NOT_FOUND;
-}
-
-type Plugs = Vec<models::KasaChildren>;
+//type Plugs = Vec<models::KasaChildren>;
 
 type OutletDevices = Vec<models::KasaResp>;
 
@@ -137,7 +25,8 @@ struct Index {
 
 #[derive(Deserialize)]
 struct Outlet {
-    ip_addr: String,
+    ip_addr: Option<String>,
+    alias: Option<String>,
     idx: Option<usize>,
 }
 
@@ -151,3 +40,137 @@ impl DeviceState {
         Self { devs: vec![] }
     }
 }
+
+#[tokio::main]
+async fn main() {
+    println!("hello world");
+    let state = Arc::new(Mutex::new(DeviceState::new()));
+
+    if let Ok(dev) = device::discover() {
+        if let Ok(mut this_state) = state.lock() {
+            for d in dev {
+                this_state.devs.push(d);
+            }
+
+        }
+    }
+    // build our application with a route
+    let app = Router::new()
+        .route("/", get(discover_devices))
+        .route("/discover", get(discover_devices))
+        //.route("/plugs", get(get_plugs))
+        .route("/toggle", post(toggle_outlet))
+        .with_state(state);
+
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:4000").await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+}
+
+async fn discover_devices(
+) -> (StatusCode, Json<Vec<models::SysInfo>>) {
+    if let Ok(dev_list) = device::discover() {
+        if dev_list.len() > 0 {
+            let mut discovered: Vec<models::SysInfo> = vec![];
+            for d in dev_list {
+                match d.sysinfo() {
+                    Some(disc) => discovered.push(disc),
+                    _ => (),
+                }
+            }
+            return (StatusCode::OK, Json(discovered));
+        }
+    }
+
+    return (StatusCode::NOT_FOUND, Json(vec![]));
+}
+
+fn alias_exists_with_refresh(dev_state: &mut DeviceState, alias: &String) -> bool {
+   if find_dev_with_alias(dev_state , alias).is_some() {
+        return true;
+    } else {
+
+        dev_state.devs.clear();
+        if let Ok(new_devs) = device::discover() {
+            for d in new_devs {
+                dev_state.devs.push(d);
+            }
+        }
+        
+        //try again with updated state
+        if find_dev_with_alias(dev_state, alias).is_some() {
+            return true;
+        }
+        
+    }
+    return false;
+}
+
+
+fn find_dev_with_alias(devs: &DeviceState, alias: &String ) -> Option<Device> {
+    for dev in &devs.devs {
+        if dev.sysinfo()?.alias == *alias {
+            return Some(dev.clone());
+        }
+    }
+    None
+}
+
+fn find_dev_with_ip(devs: &DeviceState, ip: &String) -> Option<Device> {
+    for dev in &devs.devs {
+        if dev.ip_addr == *ip {
+            return Some(dev.clone());
+        }
+    }
+    None
+}
+#[debug_handler]
+async fn toggle_outlet(
+    State(state): State<Arc<Mutex<DeviceState>>>,
+    Json(payload): Json<Outlet>) -> StatusCode {
+
+    let mut target: Option<Device> = None;
+    
+    if let Ok(mut this_state) = state.lock() {
+        //user set alias field, see if it exists
+        if let Some(alias) = payload.alias {
+            if alias_exists_with_refresh(&mut this_state, &alias) {
+                target = find_dev_with_alias(&mut this_state,  &alias);
+            }
+        }
+        //if user set ip, or set ip and alias but alias lookup failed
+        if let (Some(ip), None) = (payload.ip_addr, target.clone()) {
+            // first check if ip in devices
+            if let Some(new_t) = find_dev_with_ip(&mut this_state, &ip){
+                target = Some(new_t);
+            //if not, lets see if its on the network
+            } else if let Ok(new_t) =  device::determine_target(ip) {
+                target = Some(new_t);
+            }
+
+        }
+
+        if let Some(t) = target {
+            //we have a target
+            // now, did user provide an idx? if so, does the device support idx'd outlets?
+            if t.has_children() {
+                if let Some(idx) = payload.idx {
+                    t.toggle_relay_by_id(idx);
+                    return StatusCode::OK;
+                }
+            } else {
+                t.toggle_single_relay();
+                return StatusCode::OK;
+            }
+
+        } else {
+            //both attempts failed
+            return StatusCode::NOT_FOUND;
+        }
+
+    } else {
+        return StatusCode::NOT_FOUND;
+    }
+
+    return StatusCode::NOT_FOUND;
+}
+
