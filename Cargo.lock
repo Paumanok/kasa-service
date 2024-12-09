@@ -533,7 +533,6 @@ dependencies = [
 [[package]]
 name = "rust_kasa"
 version = "0.1.0"
-source = "git+https://github.com/paumanok/rust_kasa.git#8136dff3d5f4712e7614c48a9c55432e54de2aa6"
 dependencies = [
  "anyhow",
  "clap",
